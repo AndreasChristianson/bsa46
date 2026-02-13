@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drupal-deployment
+  namespace: troop-46
+spec:
+  selector:
+    matchLabels:
+      app: drupal
+  template:
+    metadata:
+      labels:
+        app: drupal
+    spec:
+      containers:
+        - image: drupal:11.3.3-php8.5-fpm-trixie
+          volumeMounts:
+            - name: drupal
+              mountPath: /var/www/html/modules
+              subPath: modules
+            - name: drupal
+              mountPath: /var/www/html/profiles
+              subPath: profiles
+            - name: drupal
+              mountPath: /var/www/html/themes
+              subPath: themes
+            - name: drupal
+              mountPath: /var/www/html/sites
+              subPath: sites
+          name: drupal
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: 800m
+            requests:
+              memory: 32Mi
+              cpu: 10m
+      volumes:
+        - name: drupal
+          persistentVolumeClaim:
+            claimName: drupal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drupal-service
+  namespace: troop-46
+spec:
+  ports:
+    - name: server
+      port: 80
+  selector:
+    app: drupal
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: drupal
+  namespace: troop-46
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 16Gi

@@ -1,0 +1,36 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+jobs:
+  Deploy-k8s:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone
+        uses: actions/checkout@v3
+      - uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.12'
+        name: install kubectl
+      - name: setup kubectl config
+        run: |
+          mkdir ${HOME}/.kube
+          echo "$CLIENT_CONFIG" >> ${HOME}/.kube/config
+        shell: bash
+        env:
+          CLIENT_CONFIG : ${{secrets.kube_config}}
+      - name: confirm kubectl config
+        run: |
+          kubectl version
+      - name: apply resources folder
+        run: |
+          kubectl apply -f k8s-resources
+          kubectl rollout status -n troop-71 deployments
