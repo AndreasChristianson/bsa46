@@ -20,6 +20,6 @@ spec:
               service:
                 name: drupal-service
                 port:
-                  number: 80
+                  number: 8000
             pathType: Prefix
             path: /
