@@ -13,7 +13,7 @@ spec:
         app: drupal
     spec:
       containers:
-        - image: drupal:11.3.3-php8.5-fpm-trixie
+        - image: drupal:11
           volumeMounts:
             - name: drupal
               mountPath: /var/www/html/modules
