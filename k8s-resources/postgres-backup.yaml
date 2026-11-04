@@ -1,0 +1,88 @@
+# Nightly logical dump of the drupal database to glowbox's db-dumps export,
+# which homelab syncs to s3://pessimistic-it-k8s-volume-backup/db-dumps at
+# 06:25 host time. The static PV `troop-46-db-dumps` is defined in
+# AndreasChristianson/k8s-resources (this repo's CI cannot create PVs).
+#
+# One fixed filename (the S3 sync is append-only, bucket unversioned), temp
+# file + rename, ZFS snapshots for local history. The pg_dump image must be at
+# least the server's major version (18).
+#
+# Restore (drupal scaled to 0 first):
+#   gunzip -c drupal.sql.gz | kubectl -n troop-46 exec -i postgres-0 -- psql -U <user> -d drupal
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-dumps
+  namespace: troop-46
+spec:
+  storageClassName: ""
+  volumeName: troop-46-db-dumps
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: troop-46
+spec:
+  # Well before the 06:25 S3 sync; offset from spoolman (05:00), keycloak (05:15).
+  schedule: "30 5 * * *"
+  timeZone: America/Chicago
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          enableServiceLinks: false
+          containers:
+            - name: pg-dump
+              image: postgres:18.1
+              resources:
+                requests:
+                  memory: 32Mi
+                  cpu: 10m
+                limits:
+                  memory: 256Mi
+                  cpu: 200m
+              env:
+                - name: PGHOST
+                  value: postgres-service
+                - name: PGDATABASE
+                  value: drupal
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secrets
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secrets
+                      key: password
+              # Runs as the image's default root (the export is no_root_squash),
+              # so it can create the per-app directory on the share.
+              command:
+                - bash
+                - -c
+                - |
+                  set -euo pipefail
+                  dir=/dumps/troop-46
+                  mkdir -p "$dir"
+                  pg_dump --no-owner --clean --if-exists | gzip > "$dir/.drupal.sql.gz.tmp"
+                  mv "$dir/.drupal.sql.gz.tmp" "$dir/drupal.sql.gz"
+                  ls -l "$dir"
+              volumeMounts:
+                - name: dumps
+                  mountPath: /dumps
+          volumes:
+            - name: dumps
+              persistentVolumeClaim:
+                claimName: db-dumps
