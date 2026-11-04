@@ -9,6 +9,10 @@
 #
 # Restore (drupal scaled to 0 first):
 #   gunzip -c drupal.sql.gz | kubectl -n troop-46 exec -i postgres-0 -- psql -U <user> -d drupal
+# then re-apply the database-level setting Drupal requires, which pg_dump of a
+# single database does NOT carry over (lost once in the 2026-11 migration):
+#   kubectl -n troop-46 exec postgres-0 -- psql -U <user> -d drupal \
+#     -c "ALTER DATABASE drupal SET bytea_output = 'escape'"
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
