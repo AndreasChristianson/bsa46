@@ -13,7 +13,7 @@ spec:
         app: drupal
     spec:
       containers:
-        - image: drupal:11
+        - image: drupal:11.4.11
           volumeMounts:
             - name: config
               mountPath: /usr/local/etc/php/php.ini
