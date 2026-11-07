@@ -1,10 +1,11 @@
 # Nightly logical dump of the drupal database to glowbox's db-dumps export,
 # which homelab syncs to s3://pessimistic-it-k8s-volume-backup/db-dumps at
-# 06:25 host time. The static PV `troop-46-db-dumps` is defined in
-# AndreasChristianson/k8s-resources (this repo's CI cannot create PVs).
+# 06:25 host time. The nas-db-dumps StorageClass
+# (AndreasChristianson/k8s-resources) maps the PVC to the folder
+# db-dumps/troop-46, the same one every night.
 #
-# One fixed filename (the S3 sync is append-only, bucket unversioned), temp
-# file + rename, ZFS snapshots for local history. The pg_dump image must be at
+# One fixed filename (S3 keeps 7 days of old versions), temp file + rename,
+# ZFS snapshots for local history. The pg_dump image must be at
 # least the server's major version (18).
 #
 # Restore (drupal scaled to 0 first):
@@ -19,8 +20,7 @@ metadata:
   name: db-dumps
   namespace: troop-46
 spec:
-  storageClassName: ""
-  volumeName: troop-46-db-dumps
+  storageClassName: nas-db-dumps
   accessModes:
     - ReadWriteMany
   resources:
@@ -71,15 +71,13 @@ spec:
                     secretKeyRef:
                       name: postgres-secrets
                       key: password
-              # Runs as the image's default root (the export is no_root_squash),
-              # so it can create the per-app directory on the share.
+              # Runs as the image's default root (the export is no_root_squash).
               command:
                 - bash
                 - -c
                 - |
                   set -euo pipefail
-                  dir=/dumps/troop-46
-                  mkdir -p "$dir"
+                  dir=/dumps
                   pg_dump --no-owner --clean --if-exists | gzip > "$dir/.drupal.sql.gz.tmp"
                   mv "$dir/.drupal.sql.gz.tmp" "$dir/drupal.sql.gz"
                   ls -l "$dir"

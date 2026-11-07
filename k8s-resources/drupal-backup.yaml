@@ -1,9 +1,10 @@
 # Nightly archive of drupal's volume (modules/profiles/themes/sites, uploads
 # in sites/default/files) to glowbox's pv-backups export, which homelab syncs
 # to s3://pessimistic-it-k8s-volume-backup/pv-backups (versioned, 7 days of
-# old versions) at 06:25 host time. The static PV `troop-46-pv-backups` is
-# defined in AndreasChristianson/k8s-resources (this repo's CI cannot create
-# PVs). The database is pg_dumped separately (postgres-backup.yaml).
+# old versions) at 06:25 host time. The nas-pv-backups StorageClass
+# (AndreasChristianson/k8s-resources) maps this PVC to the folder
+# pv-backups/troop-46, the same one every night. The database is pg_dumped
+# separately (postgres-backup.yaml).
 #
 # One fixed filename, temp file + rename; history is ZFS snapshots locally
 # and bucket versioning off-site. The archive contains settings.php (DB
@@ -17,8 +18,7 @@ metadata:
   name: pv-backups
   namespace: troop-46
 spec:
-  storageClassName: ""
-  volumeName: troop-46-pv-backups
+  storageClassName: nas-pv-backups
   accessModes:
     - ReadWriteMany
   resources:
@@ -62,8 +62,7 @@ spec:
                 - |
                   set -eu
                   umask 077
-                  dir=/backups/troop-46
-                  mkdir -p "$dir"
+                  dir=/backups
                   tar -C /data -czf "$dir/.drupal.tar.gz.tmp" .
                   mv "$dir/.drupal.tar.gz.tmp" "$dir/drupal.tar.gz"
                   ls -l "$dir"
