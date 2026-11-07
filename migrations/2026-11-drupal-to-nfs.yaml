@@ -1,0 +1,79 @@
+# One-off: copy drupal's nas-hostpath PVC `drupal` into the nas-nfs PVC
+# `drupal-data`. Not under k8s-resources/, so CI never applies it. Run by hand
+# with drupal scaled to 0, before merging the change that points the
+# Deployment at drupal-data:
+#
+#   kubectl -n troop-46 scale deploy/drupal-deployment --replicas=0
+#   kubectl apply -f migrations/2026-11-drupal-to-nfs.yaml
+#   kubectl -n troop-46 wait --for=condition=complete job/drupal-to-nfs --timeout=5m
+#   kubectl -n troop-46 logs job/drupal-to-nfs
+#   (merge; CI applies replicas: 1 on the new volume)
+#   kubectl -n troop-46 delete job drupal-to-nfs
+#
+# Rollback: the old PVC is only read. Revert the merge and re-apply.
+#
+# Same PVC as in k8s-resources/drupal-deployment.yaml, so it exists before the
+# Deployment switches; CI's later apply of it is a no-op.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: drupal-data
+  namespace: troop-46
+spec:
+  storageClassName: nas-nfs
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: drupal-to-nfs
+  namespace: troop-46
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      enableServiceLinks: false
+      containers:
+        - name: copy
+          image: busybox:1.37.0
+          resources:
+            requests:
+              memory: 16Mi
+              cpu: 10m
+            limits:
+              memory: 128Mi
+              cpu: 500m
+          # Root (the export is no_root_squash) so cp -a keeps owners: the
+          # tree mixes root- and www-data (33)-owned files.
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              if [ -n "$(ls -A /new)" ]; then
+                echo "refusing: /new is not empty"; ls -la /new; exit 1
+              fi
+              cp -a /old/. /new/
+              diff -r /old /new
+              echo "files: old=$(find /old | wc -l) new=$(find /new | wc -l)"
+              du -s /old /new
+              echo copied
+          volumeMounts:
+            - name: old
+              mountPath: /old
+              readOnly: true
+            - name: new
+              mountPath: /new
+      volumes:
+        - name: old
+          persistentVolumeClaim:
+            claimName: drupal
+            readOnly: true
+        - name: new
+          persistentVolumeClaim:
+            claimName: drupal-data

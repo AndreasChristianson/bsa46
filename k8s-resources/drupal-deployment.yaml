@@ -4,6 +4,9 @@ metadata:
   name: drupal-deployment
   namespace: troop-46
 spec:
+  # Explicit so an apply restores it after the manual scale-to-0 used when
+  # copying the volume (see the drupal-data PVC below).
+  replicas: 1
   selector:
     matchLabels:
       app: drupal
@@ -43,7 +46,7 @@ spec:
       volumes:
         - name: drupal
           persistentVolumeClaim:
-            claimName: drupal
+            claimName: drupal-data
         - name: config
           configMap:
             name: config
@@ -64,14 +67,20 @@ spec:
   selector:
     app: drupal
 ---
+# modules/, profiles/, themes/ and sites/ (uploads in sites/default/files),
+# about 14 MB. On glowbox's nas-nfs export, like postgres. The previous
+# nas-hostpath PVC `drupal` is no longer referenced but is left in the cluster
+# (apply never deletes) as the rollback copy; remove it by hand once this has
+# run for a while.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: drupal
+  name: drupal-data
   namespace: troop-46
 spec:
+  storageClassName: nas-nfs
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 16Gi
+      storage: 1Gi
