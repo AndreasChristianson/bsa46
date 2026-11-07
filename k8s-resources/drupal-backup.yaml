@@ -1,0 +1,84 @@
+# Nightly archive of drupal's volume (modules/profiles/themes/sites, uploads
+# in sites/default/files) to glowbox's pv-backups export, which homelab syncs
+# to s3://pessimistic-it-k8s-volume-backup/pv-backups (versioned, 7 days of
+# old versions) at 06:25 host time. The static PV `troop-46-pv-backups` is
+# defined in AndreasChristianson/k8s-resources (this repo's CI cannot create
+# PVs). The database is pg_dumped separately (postgres-backup.yaml).
+#
+# One fixed filename, temp file + rename; history is ZFS snapshots locally
+# and bucket versioning off-site. The archive contains settings.php (DB
+# password, hash salt), so it is written mode 600.
+#
+# Restore (drupal scaled to 0 first), into an empty drupal-data:
+#   tar -C <drupal-data mount> -xzpf drupal.tar.gz
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pv-backups
+  namespace: troop-46
+spec:
+  storageClassName: ""
+  volumeName: troop-46-pv-backups
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drupal-backup
+  namespace: troop-46
+spec:
+  # Offset from postgres-backup (05:30).
+  schedule: "45 5 * * *"
+  timeZone: America/Chicago
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          enableServiceLinks: false
+          containers:
+            - name: tar
+              image: busybox:1.37.0
+              resources:
+                requests:
+                  memory: 16Mi
+                  cpu: 10m
+                limits:
+                  memory: 128Mi
+                  cpu: 200m
+              # Root (both exports are no_root_squash): reads every file and
+              # keeps numeric owners in the archive.
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  umask 077
+                  dir=/backups/troop-46
+                  mkdir -p "$dir"
+                  tar -C /data -czf "$dir/.drupal.tar.gz.tmp" .
+                  mv "$dir/.drupal.tar.gz.tmp" "$dir/drupal.tar.gz"
+                  ls -l "$dir"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            # NFS, so this mounts alongside the running drupal pod.
+            - name: data
+              persistentVolumeClaim:
+                claimName: drupal-data
+                readOnly: true
+            - name: backups
+              persistentVolumeClaim:
+                claimName: pv-backups
